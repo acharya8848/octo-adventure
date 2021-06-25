@@ -1,5 +1,12 @@
 #!/usr/bin/python
 
+'''
+	Authors: Anubhav Acharya, Ramie Katan
+	Date created: 06/10/2021
+	Date last modified: 06/25/2021
+	Python Version: 3.9.5
+'''
+
 #STL imports
 import sys, os
 import io
@@ -35,6 +42,10 @@ rslt = [
 		'0xf8',
 		'0xf8'
 		]
+
+#PSU Ports the device is connected to
+PSUPorts = [1,2]
+
 #At this point, the script has been setup for usage through command line.
 #Good luck.
 
@@ -46,8 +57,9 @@ check = dict()
 for i in range(0, len(commands), 1):
 	check[commands[i]] = rslt[i]
 
-#PSU Ports the device is connected to
-PSUPorts = list()
+#The variables below this line are set using the command line arguments.
+#No need to set them here
+reps = int()
 
 def help():
 	print("\n\nThe script can be used as follows:")
@@ -100,69 +112,6 @@ def poweroff(ser):
 		ser.write(bytes("poweroff\r", encoding='ascii'))
 
 def loop1():
-	pass
-
-def loop2():
-	pass
-
-def loop3():
-	pass
-
-def lpop4():
-	pass
-
-def loop5():
-	pass
-
-def loop6():
-	pass
-
-def loop7():
-	pass
-
-def loop8():
-	pass
-
-def loop9():
-	pass
-
-def loop10():
-	pass
-
-def main():
-	failed = False
-	logFile = open(fileName, "w", newline="")
-	log = list()
-	PSUPorts.append(int(input("Please enter the first port")))
-	PSUPorts.append(int(input("Please enter the second port")))
-	try:
-		ser = s.Serial(sys.argv[1], int(sys.argv[2]), timeout=1)
-		print("The serial port was opened succesfully. Running the test", sys.argv[3],"times now...")
-	except ValueError:
-		print("The baudrate can only be a pure number.")
-		return
-	try:
-		reps = int(sys.argv[3])
-		psuPort = int(sys.argv[4])
-	except ValueError:
-		print("Number of repetions and PSU port can only be numbers.")
-		return
-
-	if psuPort < 1 or psuPort > 8:
-		print("The PSU port the device is connected to was out of bounds.")
-		print("Please enter the proper port number between 1 and 8")
-		return
-
-	print("\nInitializing Telent connection with the PSU....")
-	initTelnet("172.24.0.75", 23)
-	print("Done")
-
-	print("\nRebooting the machine now.")
-	reboot(ser)
-
-	print("\n")
-	print("The series of tests will begin now. Good luck!!")
-
 	for i in range(0, reps, 1):
 		print("Test", i+1, "starting now...")
 		print("Waiting for the device to boot up...")
@@ -241,7 +190,95 @@ def main():
 		else:
 			print("Test", i+1, "completed.")
 
-	logFile.write("\n\n\n------Log End------")
+def loop2():
+	pass
+
+def loop3():
+	pass
+
+def lpop4():
+	pass
+
+def loop5():
+	pass
+
+def loop6():
+	pass
+
+def loop7():
+	pass
+
+def loop8():
+	pass
+
+def loop9():
+	pass
+
+def loop10():
+	pass
+
+def main():
+	failed = False
+	logFile = open(fileName, "w", newline="")
+	writer = csv.writer(logFile)
+	log = list()
+	if len(PSUPorts) == 0:
+		print("Please enter the ports the device is connected to before running the script.")
+		print("Exiting now...")
+		return
+	try:
+		ser = s.Serial(sys.argv[1], int(sys.argv[2]), timeout=1)
+		print("The serial port was opened succesfully. Running the test", sys.argv[3],"times now...")
+	except ValueError:
+		print("The baudrate can only be a pure number.")
+		return
+	try:
+		reps = int(sys.argv[3])
+	except ValueError:
+		print("Number of repetions can only be a number.")
+		return
+
+	if psuPort < 1 or psuPort > 8:
+		print("The PSU port the device is connected to was out of bounds.")
+		print("Please enter the proper port number between 1 and 8")
+		return
+
+	print("\nInitializing Telent connection with the PSU....")
+	initTelnet("172.24.0.75", 23)
+	print("Done")
+
+	print("\nRebooting the machine now.")
+	reboot(ser)
+
+	print("\n")
+	print("The series of tests will begin now. Good luck!!\n")
+
+	print("Loop 1 initiating now")
+	log.append(loop1(reps, psuPort))
+	print("Loop 1 complete. Moving on to Loop 2...")
+	log.append(loop2(reps, psuPort))
+	print("Loop 2 complete. Moving on to Loop 3...")
+	log.append(loop3(reps, psuPort))
+	print("Loop 3 complete. Moving on to Loop 4...")
+	log.append(loop4(reps, psuPort))
+	print("Loop 4 complete. Moving on to Loop 5...")
+	log.append(loop5(reps, psuPort))
+	print("Loop 5 complete. Moving on to Loop 6...")
+	log.append(loop6(reps, psuPort))
+	print("Loop 6 complete. Moving on to Loop 7...")
+	log.append(loop7(reps, psuPort))
+	print("Loop 7 complete. Moving on to Loop 8...")
+	log.append(loop8(reps, psuPort))
+	print("Loop 8 complete. Moving on to Loop 9...")
+	log.append(loop9(reps, psuPort))
+	print("Loop 9 complete. Moving on to Loop 10...")
+	log.append(loop10(reps, psuPort))
+	print("Loop 10 complete.")
+
+	zip(log)
+
+	csv.writerows(log)
+
 	logFile.close()
 	print("\nAll tests completed. The log is available as", fileName, "in the same directory as the script.")
 	ser.close()

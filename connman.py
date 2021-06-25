@@ -83,8 +83,7 @@ def justSend(cmd):
 
 def send(cmd):
 	connection.tn.write(bytes(str(cmd)+'\r', encoding='utf-8'))
-	time.sleep(1)
-	status(connection.tn.read_very_eager().decode(encoding='utf-8', errors='ignore'))
+	status(connection.tn.read_until(b"RPC-3>").decode(encoding='utf-8', errors='ignore'))
 
 def setup():
 	connection.tn.read_very_eager()
