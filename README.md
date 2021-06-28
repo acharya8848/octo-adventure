@@ -58,6 +58,8 @@ The object of type TConnection will have the following functions available to it
 24. Off7()
 25. Off8()
 
+A brief description of these functions is available below.
+
 1. send(cmd)
 This function will send the contents of the variable cmd as a string over Telnet to the connected host.
 Note that the command does not have to be a string.
@@ -108,7 +110,7 @@ C = TConnection("device", baudrate)
 ```python
 C = TConnection("device", baudrate, timeout)
 ```
-The following fields have a default value associated with them and are utilized when no argument is supplied to the constructor.
+The following fields have a default value associated with them and are utilized when a value for the argument is not supplied to the constructor.
 <ul>
 	<li>baudrate: 115200</li>
 	<li>timeout: 1</li>
@@ -118,6 +120,8 @@ The following fields have a default value associated with them and are utilized 
 The object of type SConnection will have the following functions available to it:
 1. send(cmd)
 2. readAll()
+
+A brief description of these functions is available below.
 
 1. send(cmd)
 This method will append a '\r' at the end of the command supplied and write that to the provided serial device.
