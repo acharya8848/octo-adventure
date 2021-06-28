@@ -10,11 +10,7 @@
 #STL imports
 import sys, os, io, time
 from difflib import ndiff
-from datetime import datetime
 import csv
-
-#pypi module imports
-import serial as s
 
 #custom imports
 from connmanCustom import Connection
@@ -68,14 +64,6 @@ def help():
 	print("There are parameters that need to be edited before the script is run. Edit the file before use.")
 	return
 
-def readBuffer(port):
-	string = ""
-	while port.in_waiting:
-		read = port.readline().decode('ascii', errors='ignore')
-		string+=read
-
-	return string
-
 
 def login(ser):
 	if not pfsense:
@@ -92,41 +80,47 @@ def setup():
 	#this will make sure that the booting device
 	#reaches the login prompt
 	pass
+def toLogin():
+	failed = False
+	read = ""
+	while read != loginPrompt:
+		read = conS.readline()
 
-def reboot(ser):
-	if needSudo:
-		ser.write(bytes(b"sudo reboot\r"))
-		time.sleep(1)
-		ser.write(bytes(pwrd+"\r", encoding='ascii'))
-	else:
-		ser.write(bytes("reboot\r", encoding='ascii'))
+		if (time.time()-start) > limit:
+			print("The device has failed to boot within", limit, "seconds. Boot number:", i+1)
+			print("Please mannually check if there is something wrong with the device.")
+			print("The device output until this point has bee logged and is saved in the file", fileName, ".")
+			logFile.write(log)
+			print("\n\n\n------Test incomplete------\n\n\n")
+			for p in PSUPorts:
+				conT.powerOffPort(p)
+			failed = True
+			break
+	return failed
 
-def poweroff(ser):
+
+def reboot():
 	if needSudo:
-		ser.write(bytes(b"sudo poweroff\r"))
+		conS.send("sudo reboot")
 		time.sleep(1)
-		ser.write(bytes(pwrd+"\r", encoding='ascii'))
+		conS.send(pwrd)
 	else:
-		ser.write(bytes("poweroff\r", encoding='ascii'))
+		conS.send("reboot")
+
+def poweroff():
+	if needSudo:
+		conS.send("sudo poweroff")
+		time.sleep(1)
+		conS.send(pwrd)
+	else:
+		conS.send("poweroff")
 
 def loop1():
 	for i in range(0, reps, 1):
-		print("Test", i+1, "starting now...")
+		print("loop1: Test", i+1, "starting now...")
 		print("Waiting for the device to boot up...")
 		start = time.time()
-		read = ser.readline().decode('ascii', errors='ignore')
-		while read != loginPrompt:
-			read = ser.readline().decode('ascii', errors='ignore')
-
-			if (time.time()-start) > limit:
-				print("The device has failed to boot within", limit, "seconds. Boot number:", i+1)
-				print("Please mannually check if there is something wrong with the device.")
-				print("The device output until this point has bee logged and is saved in the file", fileName, ".")
-				logFile.write(log)
-				logFile.write("\n\n\n------Test incomplete------\n\n\n")
-				#cyclePower(psuPort)
-				failed = True
-				break
+		toLogin()
 
 		if failed:
 			failed = False
@@ -236,17 +230,23 @@ def main():
 		print("Number of repetions can only be a number.")
 		return
 
-	if psuPort < 1 or psuPort > 8:
-		print("The PSU port the device is connected to was out of bounds.")
-		print("Please enter the proper port number between 1 and 8")
-		return
+	for p in PSUPorts:
+		if p < 1 or psuPort > 8:
+			print("The PSU port the device is connected to was out of bounds.")
+			print("Please enter the proper port number between 1 and 8")
+			return
 
 	print("\nInitializing Telent connection with the PSU....")
-	initTelnet("172.24.0.75", 23)
+	global conT
+	conT = TConnection()
+	print("Done")
+	print("\nInitializing Serial connection with the device....")
+	global conS
+	conS = SConnection()
 	print("Done")
 
 	print("\nRebooting the machine now.")
-	reboot(ser)
+	reboot()
 
 	print("\n")
 	print("The series of tests will begin now. Good luck!!\n")

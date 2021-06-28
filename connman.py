@@ -18,7 +18,8 @@ class TConnection:
 		try:
 			self.tn = Telnet(ip,port)
 		except OSError:
-			return
+			print("Error while opening the telnet connection. Exiting now")
+			exit()
 		self.first = True
 		self.setup()
 		return
@@ -250,7 +251,12 @@ class SConnection:
 	def __init__(self,device:str,rate:int=115200,timeout=1):
 		self.device = device
 		self.rate = rate
-		self.ser = Serial(device,rate,timeout)
+		try:
+			self.ser = Serial(device,rate,timeout)
+		except SerialException:
+			print("The serial port could not be opened. Exiting now")
+			exit()
+		return
 
 	def send(self,cmd):
 		self.ser.write(bytes(str(cmd)+"\r", encoding='ascii'))
@@ -263,6 +269,12 @@ class SConnection:
 			string+=read
 
 		return string
+
+	def readline(self):
+		if self.ser.in_waiting:
+			return self.ser.readline().decode('ascii', errors='ignore')
+		else:
+			return ""
 
 def help():
 	print("This script defines classes 'TConnection' and 'SConnection'.")
