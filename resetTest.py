@@ -8,9 +8,7 @@
 '''
 
 #STL imports
-import sys, os
-import io
-import time
+import sys, os, io, time
 from difflib import ndiff
 from datetime import datetime
 import csv
