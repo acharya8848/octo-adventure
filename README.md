@@ -60,36 +60,36 @@ The object of type TConnection will have the following functions available to it
 
 A brief description of these functions is available below.
 
-1. send(cmd)
+1. send(cmd):-
 This function will send the contents of the variable cmd as a string over Telnet to the connected host.
 Note that the command does not have to be a string.
 The function justSend(cmd) is functionally the same thing as send(cmd), except that it does not monitor
 the PSU output to analyze which ports are on and which are off.
 
-2. setup()
+2. setup():-
 This function will take the PSU in the mode from which the ports can be controlled.
 This function is designed for internal use rather than being called on an object.
 
-3. status(rsp)
+3. status(rsp):-
 This function takes the PSU output as its input and analyses which ports are on and off.
 This function is designed for internal use rather than being called on an object.
 
-4. powerOffPort(port)
+4. powerOffPort(port):-
 This function takes an integer between 0 and 8, inclusive, as input. For an input between 1 and 8, the function, as aptly named, will power the port off.
 If 0 is supplied, then all of the ports from 1 to 8 will be turned off.
 
-5. powerOnPort(port)
+5. powerOnPort(port):-
 This function takes an integer between 0 and 8, inclusive, as input. For an input between 1 and 8, the function, as aptly named, will power the port on.
 If 0 is supplied, then all of the ports from 1 to 8 will be turned on.
 
-6. togglePort(port)
+6. togglePort(port):-
 This function takes an integer between 1 and 8, inclusive, as input. For an input between 1 and 8, the function, as aptly named, will toggle the port.
 
-7. refresh()
+7. refresh():-
 This function will restablish the telnet connection with the PSU if more than 120 seconds have passed since the last interaction.
 Essentialy, it revives a timed out connection.
 
-8. cyclePower(port, t)
+8. cyclePower(port, t):-
 This function will toggle the supplied port, wait for t seconds, and then toggle the port again.
 
 The functions from 9 to 24 behave exactly as their name would suggest.
@@ -123,12 +123,12 @@ The object of type SConnection will have the following functions available to it
 
 A brief description of these functions is available below.
 
-1. send(cmd)
+1. send(cmd):-
 This method will append a '\r' at the end of the command supplied and write that to the provided serial device.
 Making the process of writing commands over the serial connection easier is the main focus of this function.
 The command doesn't have to be a string. The method will return the result of sending the specified command
 to the device as a string.
 
-2. readAll()
+2. readAll():-
 If there are things in the serial communication buffer, this method will return them all as a single variable.
 The send(cmd) method utilizes this method internally.
