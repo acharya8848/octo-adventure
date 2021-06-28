@@ -1,23 +1,26 @@
 This file contains the details about the script 'connman.py' and the instructions to use it.
 
-The file defines the class `Connection` that can be imported as:
+The file defines the classes `TConnection` and `SConnection` that can be imported as:
 ```python
-from connman import Connection
+from connman import TConnection
+from connman import SConnection
 ```
-The file `connman.py` will have to be in the same directory as the script that imports the class.
+The file `connman.py` will have to be in the same directory as the script that imports the classes.
 
-An object of type `Connection` can be then defined as follows:
+<h3>TConnection</h3>
+
+An object of type `TConnection` can be then defined as follows:
 1. Without any arguments
 ```python
-C = Connection()
+C = TConnection()
 ```
-3. Host ip as the only argument
+2. Host ip as the only argument
 ```python
-C = Connection("ip")
+C = TConnection("ip")
 ```
-2. Host ip and port as arguments:
+3. Host ip and port as arguments:
 ```python
-C = Connection("ip", port)
+C = TConnection("ip", port)
 ```
 The following fields have a default value associated with them and are utilized when no argument is supplied to the constructor.
 <ul>
@@ -27,7 +30,7 @@ The following fields have a default value associated with them and are utilized 
 <strong>Note: The ip will have to be a string whereas the port will have to be an integer.</strong>
 
 
-The object of type Connection will have the following functions available to it:
+The object of type TConnection will have the following functions available to it:
 
 1. send(cmd)
 2. justSend(cmd)
@@ -89,3 +92,39 @@ This function will toggle the supplied port, wait for t seconds, and then toggle
 
 The functions from 9 to 24 behave exactly as their name would suggest.
 The ony thing to note is that calling `on` on a port that is already on will not turn the port off and vice versa.
+
+<h3>SConnection</h3>
+
+An object of type `SConnection` can be then defined as follows:
+1. Serial device as the only argument:
+```python
+C = TConnection("device")
+```
+2. Serial device and baudrate as arguments:
+```python
+C = TConnection("device", baudrate)
+```
+3. Serial device, baudrate, and timeout, in seconds, as arguments:
+```python
+C = TConnection("device", baudrate, timeout)
+```
+The following fields have a default value associated with them and are utilized when no argument is supplied to the constructor.
+<ul>
+	<li>baudrate: 115200</li>
+	<li>timeout: 1</li>
+</ul>
+<strong>Note: The device will have to be a string, the baudrate will have to be an integer and timeout can be either float, double or integer.</strong>
+
+The object of type SConnection will have the following functions available to it:
+1. send(cmd)
+2. readAll()
+
+1. send(cmd)
+This method will append a '\r' at the end of the command supplied and write that to the provided serial device.
+Making the process of writing commands over the serial connection easier is the main focus of this function.
+The command doesn't have to be a string. The method will return the result of sending the specified command
+to the device as a string.
+
+2. readAll()
+If there are things in the serial communication buffer, this method will return them all as a single variable.
+The send(cmd) method utilizes this method internally.

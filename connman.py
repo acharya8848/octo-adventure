@@ -3,9 +3,10 @@
 #STL imports
 from telnetlib import Telnet
 from time import sleep, time
+from serial import Serial
 
 
-class Connection:
+class TConnection:
 	ON = set()
 	OFF = set()
 	first = False
@@ -243,11 +244,30 @@ class Connection:
 		else:
 			return False
 
+class SConnection:
+	device = str()
+	rate = int()
+	def __init__(self,device:str,rate:int=115200,timeout=1):
+		self.device = device
+		self.rate = rate
+		self.ser = Serial(device,rate,timeout)
+
+	def send(self,cmd):
+		self.ser.write(bytes(str(cmd)+"\r", encoding='ascii'))
+		return self.readAll()
+
+	def readAll(self):
+		string = ""
+		while self.ser.in_waiting:
+			read = self.ser.readline().decode('ascii', errors='ignore')
+			string+=read
+
+		return string
 
 def help():
-	print("This script defines the class 'Connection' that can be used to")
-	print("interact with the PSU over telnet. Please import the class")
-	print("in the script that you want to embue with this ability.")
+	print("This script defines classes 'TConnection' and 'SConnection'.")
+	print("These classes will embue the importer with the ability to")
+	print("interact with the PSU over telnet and any serial device connected.")
 	print("Not made to be run standalone from the console. Exiting now...")
 	return
 

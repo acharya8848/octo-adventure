@@ -17,7 +17,7 @@ import csv
 import serial as s
 
 #custom imports
-from connmanCustom import *
+from connmanCustom import Connection
 
 Failed = False
 psuPort = 0
