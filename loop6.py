@@ -71,6 +71,11 @@ userNameP = re.compile(r'^.*login:.*$')
 bootPrompt = re.compile(r"^.*Press.ESC.for.boot.menu.*$")
 passd = re.compile(r'.*0xf8.*')
 
+def fix():
+	for i in range(0,6,1):
+		cmd = "i2cset -y "+str(i)+" 0x5b 0x06 0x01"
+		connS.send(cmd)
+
 def setup():
 	#this will make sure that the booting device
 	#reaches the login prompt
@@ -155,103 +160,104 @@ def help():
 	print("There are parameters that need to be edited before the script is run. Edit the file before use.")
 	return
 
-def loop3():
-	logCSV = open("loop3.csv", "w", newline="")
+def loop6():
+	logCSV = open("loop6.csv", "w", newline="")
 	writer = csv.writer(logCSV)
-	writer.writerow(["Loop 3"])
-	log = ["Loop 3"]
+	writer.writerow(["Loop 6"])
+	log = ["Loop 6"]
 
 	for i in range(0, reps, 1):
-		print("loop3: Test", i+1, "starting now...")
+		print("loop6: Test", i+1, "starting now...")
 		
 		r = SystemRandom()
+		
+		result = ""
 
-		print("Turning the PSU ports on")
+		for k in range(0,2,1):
+			if result != "":
+				result+="|"
 
-		j = r.randint(0,1)
-		connT.powerOnPort(PSUPorts[j])
-
-		sleep(delay:=r.randint(2000,6000)/1000)
-		print("Delayed for", delay, "seconds")
-
-		if j == 0:
-			connT.powerOnPort(PSUPorts[1])
-		else:
+			print("Turning the PSU ports on")
 			connT.powerOnPort(PSUPorts[0])
-				
-		print("Waiting for the boot prompt...")
-		start = time()
-		
-		setup()
-		failed = login()
-		
-		if failed:
-			failed = False
-			writer.writerow(["Boot failure"])
-			log.append("Boot failure")
+			connT.powerOnPort(PSUPorts[1])
 
-			connT.powerOffPort(PSUPorts[j])
+			print("Waiting for the boot prompt...")
+			start = time()
 
-			if j == 0:
+			setup()
+			failed = login()
+
+			if failed:
+				failed = False
+				result+=("Boot failure")
+
 				connT.powerOffPort(PSUPorts[1])
-			else:
 				connT.powerOffPort(PSUPorts[0])
 
-			sleep(120)
+				sleep(125)
 
-			continue
-		
-		end = time()-5
-		
-		failed = True
-		
-		print("Device took", (end-start), "seconds to boot up.")
-		print("Running the test commands now")
-		for cmd in commands:
-			if (cmd == "lsblk" or cmd == "dmidecode -t 0,1,2,3") and needSudo:
-				connS.justSend("sudo "+cmd)
-				sleep(1)
-				rslt = connS.send(pwrd)
-			else:
-				rslt = connS.send(cmd)
-
-			rslt = rslt.split("\n")
-
-			if error in rslt:
 				continue
+			
+			end = time()-5
 
-			if fail in rslt:
-				writer.writerow(["failed"])
-				log.append("failed")
-				failed = True
-			elif check[cmd] in rslt:
-				writer.writerow(["passed"])
-				log.append("passed")
-				failed = False
+			failed = True
+				
+			print("Device took", (end-start), "seconds to boot up.")
 
-		if failed:
-			print("One of the ports failed this run.")
-		else:
-			print("Nothing seemingly failed this run.")
+			print("Running the test commands now")
+			for cmd in commands:
+				if (cmd == "lsblk" or cmd == "dmidecode -t 0,1,2,3") and needSudo:
+					connS.justSend("sudo "+cmd)
+					sleep(1)
+					rslt = connS.send(pwrd)
+				else:
+					rslt = connS.send(cmd)
 
-		print("Powering off the device now")
-		poweroff()
-		
-		connT.powerOffPort(PSUPorts[j])
+				rslt = rslt.split("\n")
 
-		if j == 0:
-			connT.powerOffPort(PSUPorts[1])
-		else:
-			connT.powerOffPort(PSUPorts[0])
+				if error in rslt:
+					continue
+
+				if fail in rslt:
+					result+="failed"
+					failed = True
+				elif check[cmd] in rslt:
+					result+="passed"
+					failed = False
+
+			if k%2 == 0: 
+				fix()
+
+			if failed:
+				print("One of the ports failed this run.")
+			else:
+				print("Nothing seemingly failed this run.")
+
+			poweroff()
+			
+			
+
+			if k%2 == 0:
+				connT.powerOffPort(PSUPorts[1])
+				sleep(delay:=r.randint(1000,3000)/1000)
+				print("Delayed for", delay, "seconds")
+				connT.powerOnPort(PSUPorts[1])
+			else:
+				connT.powerOffPort(PSUPorts[0])
+				connT.powerOffPort(PSUPorts[1])
+
+
+		writer.writerow([result])
+		log.append(result)
 
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
-			sleep(2.5)
+			sleep(5)
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(2)
+			sleep(5)
 
 	logCSV.flush()
 	logCSV.close()
@@ -305,9 +311,9 @@ def main():
 	print("\n")
 	print("The series of tests will begin now. Good luck!!\n")
 
-	print("Loop 3 initiating now")
-	log.append(loop3())
-	print("Loop 3 complete.")
+	print("Loop 6 initiating now")
+	log.append(loop6())
+	print("Loop 6 complete.")
 
 	tmp1 = list()
 	tmp2 = list()

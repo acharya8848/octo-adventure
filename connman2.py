@@ -6,6 +6,9 @@ from telnetlib import Telnet
 from time import sleep, time
 from serial import Serial, SerialException
 
+#Regular expression
+notFound = re.compile(r'^.*Unknown\sCommand.*$')
+
 class TConnection:
 	ON = set()
 	OFF = set()
@@ -24,92 +27,147 @@ class TConnection:
 		self.setup()
 		return
 
+	def close(self):
+		while True:
+			try:
+				self.justSend("exit")
+				self.tn.write(bytes('help\n', encoding='ascii'))
+			except EOFError:
+				#print("Connection closed")
+				return True
+
 	#Sends commands over and reads the status of all the ports
-	#Be careful with this function as you can get stuck
+	#Be careful with this one as you can get stuck waiting forever
 	def send(self,cmd):
-		self.tn.write(bytes(str(cmd)+'\r', encoding='utf-8'))
 		self.last = time()
-		return True
+		while True:
+			self.tn.read_very_eager()
+			self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			self.last = time()
+			rsp = self.tn.read_until(b"9258Telnet->").decode(encoding='ascii', errors='ignore')
+			if notFound.match(rsp) is None:
+				break
+
+		return self.status(rsp)
 
 	#Sends commands over without reading the status of all the ports
+	#Exactly same functionality as send() without the risk of getting stuck
 	def justSend(self,cmd):
-		self.tn.write(bytes(str(cmd)+'\r', encoding='utf-8'))
 		self.last = time()
+		while True:
+			self.tn.read_very_eager()
+			self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			self.last = time()
+			rsp = self.tn.read_until(b"9258Telnet->").decode(encoding='ascii', errors='ignore')
+			if notFound.match(rsp) is None:
+				break
+
 		return True
 
 	def setup(self):
-		self.tn.read_very_eager()
-		return self.send(1)
+		self.justSend('admin=12345678')
+		self.tn.read_until(b"9258Telnet->").decode(encoding='ascii', errors='ignore')
+		return self.send("getpower")
 
 	def status(self,rsp):
-		rsp = rsp.split('\r')
-		start = -1
-		for i in range(0, len(rsp), 1):
-			if rsp[i] == '\n      1       Outlet 1    1       Off' or rsp[i] == '\n      1       Outlet 1    1       On ':
-				start = i
-				break
+		if (matches:=re.search(re.compile(r'\d\s\d\s\d\s\d'), rsp)) is not None:
+			matches = matches.group().split(' ')
+			if matches[0] == "1":
+				self.ON.add(1)
+				self.OFF.discard(1)
+			else:
+				self.OFF.add(1)
+				self.ON.discard(1)
+			if matches[1] == "1":
+				self.ON.add(2)
+				self.OFF.discard(2)
+			else:
+				self.OFF.add(2)
+				self.ON.discard(2)
+			if matches[2] == "1":
+				self.ON.add(3)
+				self.OFF.discard(3)
+			else:
+				self.OFF.add(3)
+				self.ON.discard(3)
+			if matches[3] == "1":
+				self.ON.add(4)
+				self.OFF.discard(4)
+			else:
+				self.OFF.add(4)
+				self.ON.discard(4)
 
-		if start != -1:
-			for i in range(1, 9, 1):
-				st = rsp[start]
-				st = st.split(' ')
-				if 'On' in st:
-					self.ON.add(i)
-					self.OFF.discard(i)
-				else:
-					self.OFF.add(i)
-					self.ON.discard(i)
-				start = start+1
-			self.state = True
 			return True
-		else:
-			self.ON.empty()
-			self.OFF.empty()
-			self.state = False
-			return False
+
+		return False
 
 	def powerOffPort(self, port:int = 0):
 		self.refresh()
-		if port > 8 or port < 0:
+		cmd = ""
+		if port > 4 or port < 0:
 			return False
 		elif port == 0:
-			self.justSend("off")
+			cmd = "setpower p6=0000"
 		else:
-			self.justSend("off "+str(port))
-		return self.send("y")
+			cmd = "setpower p6="
+			for i in range(1,5,1):
+				if i == port:
+					cmd+='0'
+				else:
+					if i in self.ON:
+						cmd+='1'
+					else:
+						cmd+='0'
+		#print(cmd)
+		return self.send(cmd)
 
 	def powerOnPort(self, port:int = 0):
+		cmd = ""
 		self.refresh()
-		if port > 8 or port < 0:
+		if port > 4 or port < 0:
 			return False
 		elif port == 0:
-			self.justSend("on")
+			cmd = "setpower p6=1111"
 		else:
-			self.justSend("on "+str(port))
-		return self.send("y")
+			cmd = "setpower p6="
+			for i in range(1,5,1):
+				if i == port:
+					cmd+='1'
+				else:
+					if i in self.ON:
+						cmd+='1'
+					else:
+						cmd+='0'
+		#print(cmd)
+		return self.send(cmd)
 
 	def togglePort(self,port:int):
 		self.refresh()
-		if port in self.OFF:
-			return self.powerOnPort(port)
-		else:
+		if port in self.ON:
 			return self.powerOffPort(port)
+		elif port in self.OFF:
+			return self.powerOnPort(port)
+		elif port == 0:
+			if len(self.ON) != 4:
+				self.powerOnPort()
+			else:
+				self.powerOffPort()
 
 	def refresh(self):
-		if time()-self.last < 100:
-			return True
+		try:
+			self.send("getpower")
+			#print("No need to refresh")
+		except EOFError:
+			self.tn.open(self.ip, self.port)
+			#print("Refreshed")
+		except:
+			return False
 
-		else:
-			self.tn.close()
-			try:
-				self.tn.open(self.ip, self.port)
-				return self.setup()
-			except OSError:
-				return False
+		return True
 
 	def cyclePower(self, port:int, t:float = 10):
 		self.refresh()
-		if port > 8 or port < 1:
+		if port > 4 or port < 1:
 			return False
 		self.togglePort(port)
 		sleep(t)
@@ -147,38 +205,6 @@ class TConnection:
 			return True
 		else:
 			return False
-	def on5(self):
-		self.refresh()
-		if not 5 in self.ON:
-			return self.powerOnPort(5)
-		elif 5 in self.ON:
-			return True
-		else:
-			return False
-	def on6(self):
-		self.refresh()
-		if not 6 in self.ON:
-			return self.powerOnPort(6)
-		elif 6 in self.ON:
-			return True
-		else:
-			return False
-	def on7(self):
-		self.refresh()
-		if not 7 in self.ON:
-			return self.powerOnPort(7)
-		elif 7 in self.ON:
-			return True
-		else:
-			return False
-	def on8(self):
-		self.refresh()
-		if not 8 in self.ON:
-			return self.powerOnPort(8)
-		elif 8 in self.ON:
-			return True
-		else:
-			return False
 
 	def off1(self):
 		self.refresh()
@@ -212,38 +238,7 @@ class TConnection:
 			return True
 		else:
 			return False
-	def off5(self):
-		self.refresh()
-		if not 5 in self.OFF:
-			return self.powerOffPort(5)
-		elif 5 in self.OFF:
-			return True
-		else:
-			return False
-	def off6(self):
-		self.refresh()
-		if not 6 in self.OFF:
-			return self.powerOffPort(6)
-		elif 6 in self.OFF:
-			return True
-		else:
-			return False
-	def off7(self):
-		self.refresh()
-		if not 7 in self.OFF:
-			return self.powerOffPort(7)
-		elif 7 in self.OFF:
-			return True
-		else:
-			return False
-	def off8(self):
-		self.refresh()
-		if not 8 in self.OFF:
-			return self.powerOffPort(8)
-		elif 8 in self.OFF:
-			return True
-		else:
-			return False
+
 
 cmdPrompt = re.compile(r'^.*@.*$')
 

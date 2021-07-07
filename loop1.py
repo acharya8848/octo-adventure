@@ -8,52 +8,53 @@
 '''
 
 #STL imports
-import sys, os, io, time
-from difflib import ndiff
-import csv
+import sys, re, csv, os, io
+from time import sleep, time
+from random import SystemRandom
+
+#pip imports
+from serial import SerialException
 
 #custom imports
-from connmanCustom import Connection
-
-Failed = False
-psuPort = 0
+from connman2 import TConnection, SConnection
 
 #OS Login Credentials
 uname = "root"			#the user to login as
-pwrd = "silicom123"		#the password for the user account
+pwrd = "admin"			#the password for the user account
 #I hate pfsense
 pfsense = False
 #If the machine needs sudo, put set as True, else set it as false
 needSudo = False
 #How long to wait for the device to boot
 limit=90
-#What string does the OS show when it has finished booting up and is waiting for user login
-loginPrompt = "fc26-min login: "
 #What commands to run after the device has booted succesfully?
-commands = ["i2cget -y 1 0x74 0 b", "i2cget -y 0 0x74 0 b"]
+commands = ["i2cget -y 0 0x74 0 b", "i2cget -y 1 0x74 0 b", "i2cget -y 2 0x74 0 b", "i2cget -y 3 0x74 0 b", "i2cget -y 4 0x74 0 b", "i2cget -y 5 0x74 0 b"]
 #The expected results after running the commands
 rslt = [
-		'0xf8',
-		'0xf8'
+		'0xf8\r',
+		'0xf8\r',
+		'0xf8\r',
+		'0xf8\r',
+		'0xf8\r',
+		'0xf8\r'
 		]
 
+#The error returned for selecting the wrong i2c device
+error = "Error: Read failed\r"
+
+#The i2c bus reading when one of the ports has failed
+fail = "0xb8\r"
+
 #PSU Ports the device is connected to
-PSUPorts = [X,X]
+PSUPorts = [1, 2]
 
 #At this point, the script has been setup for usage through command line.
 #Good luck.
 
 
-fileName = "loop1.csv"
-
-
 check = dict()
 for i in range(0, len(commands), 1):
 	check[commands[i]] = rslt[i]
-
-#The variables below this line are set using the command line arguments.
-#No need to set them here
-reps = int()
 
 def help():
 	print("\n\nThe script can be used as follows:")
@@ -64,54 +65,243 @@ def help():
 	print("There are parameters that need to be edited before the script is run. Edit the file before use.")
 	return
 
+#Regular expressions
+off = re.compile(r'^.*reboot:\sPower\sdown.*$')
+userNameP = re.compile(r'^.*login:.*$')
+bootPrompt = re.compile(r"^.*Press.ESC.for.boot.menu.*$")
+passd = re.compile(r'.*0xf8.*')
 
-def login(ser):
-	if not pfsense:
-		ser.write(bytes(uname+"\r", encoding='ascii'))
-		time.sleep(1)
-		ser.write(bytes(pwrd+"\r", encoding='ascii'))
-		time.sleep(1)
+def setup():
+	#this will make sure that the booting device
+	#reaches the login prompt
+	while bootPrompt.match(connS.readline()) is None:
+		pass
+	connS.ser.write(b"\033")
+	sleep(0.5)
+	connS.ser.write(b"2")
+	print("Fedora on the USB stick has been selected")
+
+def toLogin():
+	start = time()
+	failed = False
+	while userNameP.match(connS.readline()) is None:
+		if (time()-start) > limit:
+			print("The device has failed to boot within", limit, "seconds. Boot number:", i+1)
+			print("Please mannually check if there is something wrong with the device.")
+			print("\n\n\n------Test incomplete------\n\n\n")
+			for i in range(0, len(PSUPorts), 1):
+				if i%2==0:
+					connT.powerOffPort(PSUPorts[i])
+				else:
+					connT2.powerOffPort(PSUPorts[i])
+				failed = True
+			break
+	
+	return failed
+
+def login():
+	print("Waiting for the authentication prompt")
+	r = toLogin()
+	if not pfsense and not r:
+		print("Sending username")
+		connS.send(uname)
+		sleep(1)
+		print("Sending password")
+		connS.send(pwrd)
+		sleep(3.5)
+		rslt = connS.readAll()
+		if not re.compile(r'^.*Login\sincorrect.*$').match(rslt) is None:
+			print("Incorrect username or password supplied.")
+			print("Please edit the script with correct values before running.")
+			exit()
+		print("Login successful")
+	elif not r:
+		connS.send("8\r", encoding='ascii')
+		sleep(2)
+		connS.readAll()
+		print("Login successful")
 	else:
-		ser.write(bytes("8\r", encoding='ascii'))
-		time.sleep(2)
-		readBuffer(ser)
+		print("Boot failure")
+	return r
+
+def reboot():
+	if needSudo:
+		connS.send("sudo reboot")
+		time.sleep(1)
+		connS.send(pwrd)
+	else:
+		connS.send("reboot")
+
+def poweroff():
+	if needSudo:
+		connS.send("sudo poweroff")
+		time.sleep(1)
+		connS.send(pwrd)
+	else:
+		connS.send("poweroff")
+
+	while off.match(connS.readline()) is None:
+		pass
+
+	print("Device powered off successfully")
+	return True
+
+def help():
+	print("\n\nThe script can be used as follows:")
+	print("\n\t",sys.argv[0], " <DEVICE> <BAUDRATE> <REPETITIONS>")
+	print("\n\tDEVICE:- COMX for windows, /dev/usbX for linux; replace the 'X' with relevant number")
+	print("\tBAUDRATE:- A number representing the rate of communication.")
+	print("\tREPETITIONS:- Number of times to run the tests for\n\n")
+	print("There are parameters that need to be edited before the script is run. Edit the file before use.")
+	return
+
+def loop1():
+	log1 = open("loop1.csv", "w", newline="")
+	writer = csv.writer(log1)
+	writer.writerow(["Loop 1"])
+	logO = ["Loop 1"]
+
+	for i in range(0, reps, 1):
+		print("loop1: Test", i+1, "starting now...")
+		
+		print("Turning the PSU ports on")
+
+		for p in PSUPorts:
+			connT.powerOnPort(p)
+				
+		print("Waiting for the boot prompt...")
+		start = time()
+		
+		setup()
+		failed = login()
+		
+		if failed:
+			failed = False
+			writer.writerow(["Boot failure"])
+			logO.append("Boot failure")
+
+			for p in PSUPorts:
+				connT.powerOffPort(p)
+
+			sleep(125)
+
+			continue
+		
+		end = time()-5
+		
+		failed = True
+
+		print("Device took", (end-start), "seconds to boot up.")
+		print("Running the test commands now")
+		for cmd in commands:
+			if (cmd == "lsblk" or cmd == "dmidecode -t 0,1,2,3") and needSudo:
+				connS.justSend("sudo "+cmd)
+				sleep(1)
+				rslt = connS.send(pwrd)
+			else:
+				rslt = connS.send(cmd)
+
+			rslt = rslt.split("\n")
+
+			if error in rslt:
+				continue
+
+			if fail in rslt:
+				writer.writerow(["failed"])
+				logO.append("failed")
+			elif check[cmd] in rslt:
+				writer.writerow(["passed"])
+				logO.append("passed")
+				failed = False
+
+		if failed:
+			print("One of the ports failed this run.")
+		else:
+			print("Nothing seemingly failed this run.")
+
+		print("Powering off the device now")
+		poweroff()
+		
+		for p in PSUPorts:
+			connT.powerOffPort(p)
+
+		if i+1 < reps:
+			print("Test", i+1, "completed.")
+			print("Powring the PSU Port off and waiting for 120 seconds")
+			sleep(2.5)
+			print("Moving on to test",i+2,"\n")
+		else:
+			print("Test", i+1, "completed. All done. Moving on")
+			sleep(2)
+
+	log1.flush()
+	log1.close()
+	return logO
 
 def main():
-	failed = False
-	file = open(fileName, "w", newline="")
-	writer = csv.writer(file)
+	logCSV = open("log.csv","w",newline="")
+	writer = csv.writer(logCSV)
 	log = list()
-
 	if len(PSUPorts) == 0:
 		print("Please enter the ports the device is connected to before running the script.")
 		print("Exiting now...")
-		exit()
+		return
 
 	try:
 		print("\nInitializing Serial connection with the device....")
-		global conS
-		conS = SConnection(sys.argv[1], int(sys.argv[2]))
-		print("Done. Running the test", reps:=int(sys.argv[3]), "times.")
-	except SerialError:
-		print("A serial connection with the selected device could not be established.")
-		exit()
+		global connS
+		connS = SConnection(sys.argv[1],int(sys.argv[2]))
+		print("Done")
+	except SerialException:
+		print("A connection with the device was not established. Please advise.")
+		return
 	except ValueError:
-		print("Baudrate and reps can only be integers.")
+		print("The baudrate can only be a pure number.")
+		return
+	
+	try:
+		print("\nInitializing Telnet connection with the PSU....")
+		global connT
+		connT = TConnection()
+		print("Done")
+	except OSError:
+		print("Connetion with the PSU over Telnet was not established. Please advise.")
+		exit()
+	
+	try:
+		global reps
+		reps = int(sys.argv[3])
+	except ValueError:
+		print("Number of repetions can only be a number.")
 		exit()
 
-	
-
 	for p in PSUPorts:
-		if p < 1 or psuPort > 8:
+		if p < 1 or p > 4:
 			print("The PSU port the device is connected to was out of bounds.")
-			print("Please enter the proper port number between 1 and 8")
+			print("Please enter the proper port numbers; between 1 and 8")
 			exit()
-		conT.powerOnPort(p)
 
-	
 
-	for p in PSUPorts:
+	print("\nThe series of tests will begin now. Good luck!!\n")
 
+	print("Loop 1 initiating now")
+	log.append(loop1())
+	print(log)
+	print("\nLoop 1 complete.")
+
+	tmp1 = list()
+	tmp2 = list()
+	for i in range(0, len(log[0]), 1):
+		for j in range (0,len(log),1):
+			tmp1.append(log[j][i])
+		tmp2.append(tmp1)
+		tmp1 = []
+
+	writer.writerows(tmp2)
+	logCSV.flush()
+	logCSV.close()
+
+	print("\nAll tests completed. The log is available as log.csv in the same directory as the script.")
 
 if __name__ == '__main__':
 	if len(sys.argv) == 4:
