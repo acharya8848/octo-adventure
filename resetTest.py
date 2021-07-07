@@ -1076,9 +1076,13 @@ def main():
 	log.append(loop10())
 	print("\nLoop 10 complete.")
 
+	for i in range(0,len(log),1):
+		while len(log[i]) != 101:
+			log[i].append("")
+
 	tmp1 = list()
 	tmp2 = list()
-	for i in range(0, len(log[0]), 1):
+	for i in range(0, 101, 1):
 		for j in range (0,len(log),1):
 			tmp1.append(log[j][i])
 		tmp2.append(tmp1)
