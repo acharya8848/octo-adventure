@@ -8,7 +8,7 @@
 '''
 
 #STL imports
-import sys, re, csv, os, io
+import sys, re, csv, os, io, traceback
 from time import sleep, time
 from random import SystemRandom
 
@@ -52,10 +52,13 @@ PSUPorts = [1, 4]
 #At this point, the script has been setup for usage through command line.
 #Good luck.
 
-
+#Building a hash map using commands and the respective results
 check = dict()
 for i in range(0, len(commands), 1):
 	check[commands[i]] = rslt[i]
+
+#Verbose log of the device output
+v = open("Verbose Log.txt", "w")
 
 #Random number generator
 r = SystemRandom()
@@ -66,6 +69,12 @@ userNameP = re.compile(r'^.*login:.*$')
 bootPrompt = re.compile(r"^.*Press.ESC.for.boot.menu.*$")
 passd = re.compile(r'.*0xf8.*')
 
+def verbose(end:bool=False):
+	v.write(connS.ser.read().decode('ascii', errors='ignore'))
+	if end:
+		v.flush()
+		v.close()
+
 def fix():
 	for i in range(0,6,1):
 		cmd = "i2cset -y "+str(i)+" 0x5b 0x06 0x01"
@@ -74,8 +83,8 @@ def fix():
 def setup():
 	#this will make sure that the booting device
 	#reaches the login prompt
-	while bootPrompt.match(connS.readline()) is None:
-		pass
+	while bootPrompt.match(read:=connS.readline()) is None:
+		v.write(read)
 	connS.ser.write(b"\033")
 	sleep(0.5)
 	connS.ser.write(b"2")
@@ -84,7 +93,8 @@ def setup():
 def toLogin():
 	start = time()
 	failed = False
-	while userNameP.match(connS.readline()) is None:
+	while userNameP.match(read:=connS.readline()) is None:
+		v.write(read)
 		if (time()-start) > limit:
 			print("The device has failed to boot within", limit, "seconds.")
 			print("Please mannually check if there is something wrong with the device.")
@@ -110,6 +120,7 @@ def login():
 		connS.send(pwrd)
 		sleep(3.5)
 		rslt = connS.readAll()
+		v.write(rslt)
 		if not re.compile(r'^.*Login\sincorrect.*$').match(rslt) is None:
 			print("Incorrect username or password supplied.")
 			print("Please edit the script with correct values before running.")
@@ -126,17 +137,17 @@ def login():
 
 def reboot():
 	if needSudo:
-		connS.send("sudo reboot")
+		v.write(connS.send("sudo reboot"))
 		time.sleep(1)
-		connS.send(pwrd)
+		v.write(connS.send(pwrd))
 	else:
-		connS.send("reboot")
+		v.write(connS.send("reboot"))
 
 def test():
 	failed = "0x38"
 	for cmd in commands:
 		rslt = connS.send(cmd)
-
+		v.write(rslt)
 		rslt = rslt.split("\n")
 
 		if error in rslt:
@@ -156,17 +167,18 @@ def test():
 
 def poweroff():
 	if needSudo:
-		connS.send("sudo poweroff")
+		v.write(connS.send("sudo poweroff"))
 		time.sleep(1)
-		connS.send(pwrd)
+		v.write(connS.send(pwrd))
 	else:
-		connS.send("poweroff")
+		v.write(connS.send("poweroff"))
 	start = time()
-	while off.match(connS.readline()) is None:
+	while off.match(read:=connS.readline()) is None:
+		v.write(read)
 		if time() - start > 30:
 			print("Device failed to report poweroff within 30 seconds. Cutting power now.")
 			break
-
+	v.write(read)
 	print("Device powered off successfully")
 	return True
 
@@ -180,12 +192,14 @@ def help():
 	return
 
 def loop1():
+	v.write("\n\nLoop 1 starts here\n\n")
 	logCSV = open("loop1.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 1"])
 	log = ["Loop 1"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 1 test "+str(i+1)+" starts here.\n")
 		print("loop1: Test", i+1, "starting now...")
 		
 		print("Turning the PSU ports on")
@@ -200,11 +214,13 @@ def loop1():
 		failed = login()
 		
 		if failed:
-			writer.writerow(["Boot failure"])
-			log.append("Boot failure")
+			writer.writerow([str(time())+"/Boot failure"])
+			log.append(str(time())+"/Boot failure")
 
 			for p in PSUPorts:
 				connT.powerOffPort(p)
+				
+			logCSV.flush()
 
 			sleep(125)
 
@@ -217,20 +233,20 @@ def loop1():
 		
 		t = test()
 		if t == "0xf8":
-			writer.writerow(["passed/"+t])
-			log.append("passed/"+t)
+			writer.writerow([str(time())+"/passed/"+t])
+			log.append(str(time())+"/passed/"+t)
 			print("Nothing seemingly failed this run.")
 		elif t == "0xb8":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append("/failed/"+t)
 			print("Port 2 failed this run")
 		elif t == "0x78":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
 			print("Port 1 failed this run")
 		else:
-			writer.writerow(["unknown/"+t])
-			log.append("unknown/"+t)
+			writer.writerow([str(time())+"/unknown/"+t])
+			log.append(str(time())+"/unknown/"+t)
 			print("Device in unknown state")
 
 		print("Powering the device off now")
@@ -240,6 +256,8 @@ def loop1():
 		for p in PSUPorts:
 			connT.powerOffPort(p)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -247,19 +265,21 @@ def loop1():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(2)
+			sleep(125)
+		v.write("\nLoop 1 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop2():
+	v.write("\n\nLoop 2 starts here\n\n")
 	logCSV = open("loop2.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 2"])
 	log = ["Loop 2"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 2 test "+str(i+1)+" starts here.\n")
 		print("loop2: Test", i+1, "starting now...")
 		
 		r = SystemRandom()
@@ -284,8 +304,8 @@ def loop2():
 		failed = login()
 		
 		if failed:
-			writer.writerow(["Boot failure"])
-			log.append("Boot failure")
+			writer.writerow([str(time())+"/Boot failure"])
+			log.append(str(time())+"/Boot failure")
 
 			connT.powerOffPort(PSUPorts[j])
 
@@ -293,6 +313,8 @@ def loop2():
 				connT.powerOffPort(PSUPorts[1])
 			else:
 				connT.powerOffPort(PSUPorts[0])
+				
+			logCSV.flush()
 
 			sleep(125)
 
@@ -305,20 +327,20 @@ def loop2():
 		print("Running the test commands now")
 		t = test()
 		if t == "0xf8":
-			writer.writerow(["passed/"+t])
-			log.append("passed/"+t)
+			writer.writerow([str(time())+"/passed/"+t])
+			log.append(str(time())+"/passed/"+t)
 			print("Nothing seemingly failed this run.")
 		elif t == "0xb8":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
 			print("Port 2 failed this run")
 		elif t == "0x78":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
 			print("Port 1 failed this run")
 		else:
-			writer.writerow(["unknown/"+t])
-			log.append("unknown/"+t)
+			writer.writerow([str(time())+"/unknown/"+t])
+			log.append(str(time())+"/unknown/"+t)
 			print("Device in unknown state")
 
 		print("Powering off the device now")
@@ -331,6 +353,8 @@ def loop2():
 		else:
 			connT.powerOffPort(PSUPorts[0])
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -338,19 +362,21 @@ def loop2():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(2)
+			sleep(125)
+		v.write("\nLoop 2 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop3():
+	v.write("\n\nLoop 3 starts here\n\n")
 	logCSV = open("loop3.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 3"])
 	log = ["Loop 3"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 3 test "+str(i+1)+" starts here.\n")
 		print("loop3: Test", i+1, "starting now...")
 
 		print("Turning the PSU ports on")
@@ -373,8 +399,8 @@ def loop3():
 		failed = login()
 		
 		if failed:
-			writer.writerow(["Boot failure"])
-			log.append("Boot failure")
+			writer.writerow([str(time())+"/Boot failure"])
+			log.append(str(time())+"/Boot failure")
 
 			connT.powerOffPort(PSUPorts[j])
 
@@ -382,6 +408,8 @@ def loop3():
 				connT.powerOffPort(PSUPorts[1])
 			else:
 				connT.powerOffPort(PSUPorts[0])
+				
+			logCSV.flush()
 
 			sleep(125)
 
@@ -394,20 +422,20 @@ def loop3():
 		print("Running the test commands now")
 		t = test()
 		if t == "0xf8":
-			writer.writerow(["passed/"+t])
-			log.append("passed/"+t)
+			writer.writerow([str(time())+"/passed/"+t])
+			log.append(str(time())+"/passed/"+t)
 			print("Nothing seemingly failed this run.")
 		elif t == "0xb8":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
 			print("Port 2 failed this run")
 		elif t == "0x78":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
 			print("Port 1 failed this run")
 		else:
-			writer.writerow(["unknown/"+t])
-			log.append("unknown/"+t)
+			writer.writerow([str(time())+"/unknown/"+t])
+			log.append(str(time())+"/unknown/"+t)
 			print("Device in unknown state")
 
 		print("Powering off the device now")
@@ -420,6 +448,8 @@ def loop3():
 		else:
 			connT.powerOffPort(PSUPorts[0])
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -427,19 +457,21 @@ def loop3():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(2)
+			sleep(125)
+		v.write("\nLoop 3 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop4():
+	v.write("\n\nLoop 4 starts here\n\n")
 	logCSV = open("loop4.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 4"])
 	log = ["Loop 4"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 4 test "+str(i+1)+" starts here.\n")
 		print("loop4: Test", i+1, "starting now...")
 		
 		result = ""
@@ -447,7 +479,9 @@ def loop4():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
-
+			
+			result += (str(time())+"/")
+			
 			print("Turning the PSU ports on")
 
 			connT.powerOnPort(PSUPorts[0])
@@ -464,6 +498,8 @@ def loop4():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(125)
 
@@ -476,20 +512,16 @@ def loop4():
 			print("Running the test commands now")
 			t = test()
 			if t == "0xf8":
-				writer.writerow(["passed/"+t])
-				log.append("passed/"+t)
+				result+="passed/"+t
 				print("Nothing seemingly failed this run.")
 			elif t == "0xb8":
-				writer.writerow(["failed/"+t])
-				log.append("failed/"+t)
+				result+="failed/"+t
 				print("Port 2 failed this run")
 			elif t == "0x78":
-				writer.writerow(["failed/"+t])
-				log.append("failed/"+t)
+				result+="failed/"+t
 				print("Port 1 failed this run")
 			else:
-				writer.writerow(["unknown/"+t])
-				log.append("unknown/"+t)
+				result+="unknown/"+t
 				print("Device in unknown state")
 
 			print("Powering off the device now")
@@ -501,9 +533,11 @@ def loop4():
 			if k%2 == 0:
 				sleep(delay:=r.randint(1000,3000)/1000)
 				print("Delayed for", delay, "seconds")
-
+		print(result)
 		writer.writerow([result])
 		log.append(result)
+
+		logCSV.flush()
 
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
@@ -512,19 +546,21 @@ def loop4():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
+		v.write("\nLoop 4 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop5():
+	v.write("\n\nLoop 5 starts here\n\n")
 	logCSV = open("loop5.csv", "w", newline="")
 	writer = csv.writer(logCSV)
-	writer.writerow(["Loop 4"])
+	writer.writerow(["Loop 5"])
 	log = ["Loop 5"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 5 test "+str(i+1)+" starts here.\n")
 		print("loop5: Test", i+1, "starting now...")
 		
 		result = ""
@@ -532,6 +568,8 @@ def loop5():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
+			
+			result += (str(time())+"/")
 
 			print("Turning the PSU ports on")
 
@@ -549,6 +587,8 @@ def loop5():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(125)
 
@@ -586,6 +626,8 @@ def loop5():
 		writer.writerow([result])
 		log.append(result)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -593,19 +635,21 @@ def loop5():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
+		v.write("\nLoop 5 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop6():
+	v.write("\n\nLoop 6 starts here\n\n")
 	logCSV = open("loop6.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 6"])
 	log = ["Loop 6"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 6 test "+str(i+1)+" starts here.\n")
 		print("loop6: Test", i+1, "starting now...")
 		
 		result = ""
@@ -613,6 +657,8 @@ def loop6():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
+			
+			result += (str(time())+"/")
 
 			print("Turning the PSU ports on")
 			connT.powerOnPort(PSUPorts[0])
@@ -629,6 +675,8 @@ def loop6():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(125)
 
@@ -672,6 +720,8 @@ def loop6():
 		writer.writerow([result])
 		log.append(result)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -679,19 +729,21 @@ def loop6():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
+		v.write("\nLoop 6 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop7():
+	v.write("\n\nLoop 7 starts here\n\n")
 	logCSV = open("loop7.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 7"])
 	log = ["Loop 7"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 7 test "+str(i+1)+" starts here.\n")
 		print("loop7: Test", i+1, "starting now...")
 		
 		result = ""
@@ -699,6 +751,8 @@ def loop7():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
+			
+			result += (str(time())+"/")
 
 			print("Turning the PSU ports on")
 			connT.powerOnPort(PSUPorts[0])
@@ -715,6 +769,8 @@ def loop7():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(125)
 
@@ -758,6 +814,8 @@ def loop7():
 		writer.writerow([result])
 		log.append(result)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -765,19 +823,21 @@ def loop7():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
+		v.write("\nLoop 7 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop8():
+	v.write("\n\nLoop 8 starts here\n\n")
 	logCSV = open("loop8.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 8"])
 	log = ["Loop 8"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 8 test "+str(i+1)+" starts here.\n")
 		print("loop8: Test", i+1, "starting now...")
 		
 		print("Turning the PSU port on")
@@ -791,11 +851,13 @@ def loop8():
 		failed = login()
 		
 		if failed:
-			writer.writerow(["Boot failure"])
-			log.append("Boot failure")
+			writer.writerow(["/Boot failure"])
+			log.append("/Boot failure")
 
 			for p in PSUPorts:
 				connT.powerOffPort(p)
+				
+			logCSV.flush()
 
 			sleep(125)
 
@@ -806,22 +868,22 @@ def loop8():
 		print("Device took", (end-start), "seconds to boot up.")
 		
 		print("Running the test commands now")
-		
+		t=test()
 		if t == "0xf8":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
-			print("Nothing seemingly failed this run.")
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
+			print("Nothing seemingly failed this run, something went wrong")
 		elif t == "0xb8":
-			writer.writerow(["failed/"+t])
-			log.append("failed/"+t)
-			print("Port 2 failed this run")
+			writer.writerow([str(time())+"/passed/"+t])
+			log.append(str(time())+"/passed/"+t)
+			print("Port 2 failed this run, expected failure")
 		elif t == "0x78":
-			writer.writerow(["passed/"+t])
-			log.append("passed/"+t)
-			print("Port 1 failed this run")
+			writer.writerow([str(time())+"/failed/"+t])
+			log.append(str(time())+"/failed/"+t)
+			print("Port 1 failed this run, unexpected failure")
 		else:
-			writer.writerow(["unknown/"+t])
-			log.append("unknown/"+t)
+			writer.writerow([str(time())+"/unknown/"+t])
+			log.append(str(time())+"/unknown/"+t)
 			print("Device in unknown state")
 
 		print("Powering off the device now")
@@ -830,6 +892,8 @@ def loop8():
 		for p in PSUPorts:
 			connT.powerOffPort(p)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -837,19 +901,21 @@ def loop8():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(2)
+			sleep(125)
+		v.write("\nLoop 8 test "+str(i+1)+" starts here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def loop9():
+	v.write("\n\nLoop 9 starts here\n\n")
 	logCSV = open("loop9.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 9"])
 	log = ["Loop 9"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 9 test "+str(i+1)+" starts here.\n")
 		print("loop9: Test", i+1, "starting now...")
 		
 		result = ""
@@ -857,6 +923,8 @@ def loop9():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
+			
+			result += (str(time())+"/")
 
 			print("Turning the PSU ports on")
 
@@ -873,6 +941,8 @@ def loop9():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(120)
 
@@ -888,13 +958,13 @@ def loop9():
 			t = test()
 			if t == "0xf8":
 				result+="failed/"+t
-				print("Nothing seemingly failed this run, which means something went wrong.")
+				print("Nothing seemingly failed this run, something went wrong.")
 			elif t == "0xb8":
-				result+="failed/"+t
-				print("Port 2 failed this run, unexpected failure")
-			elif t == "0x78":
 				result+="passed/"+t
-				print("Port 1 failed this run, which means everything is ok")
+				print("Port 2 failed this run, expected failure")
+			elif t == "0x78":
+				result+="failed/"+t
+				print("Port 1 failed this run, unexpected failure")
 			else:
 				result+="unknown/"+t
 				print("Device in unknown state")
@@ -912,6 +982,8 @@ def loop9():
 		writer.writerow([result])
 		log.append(result)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -919,19 +991,22 @@ def loop9():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
 
-	logCSV.flush()
+		v.write("\nLoop 9 test "+str(i+1)+" starts here.\n")
+
 	logCSV.close()
 	return log
 
 def loop10():
+	v.write("\n\nLoop 10 starts here\n\n")
 	logCSV = open("loop10.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 10"])
 	log = ["Loop 10"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 10 test "+str(i+1)+" starts here.\n")
 		print("loop10: Test", i+1, "starting now...")
 		
 		result = ""
@@ -939,6 +1014,8 @@ def loop10():
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
+			
+			result += (str(time())+"/")
 
 			print("Turning the PSU ports on")
 
@@ -955,6 +1032,8 @@ def loop10():
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
 				sleep(120)
 
@@ -970,13 +1049,13 @@ def loop10():
 			t = test()
 			if t == "0xf8":
 				result+="failed/"+t
-				print("Nothing seemingly failed this run, which means something went wrong.")
+				print("Nothing seemingly failed this run, something went wrong.")
 			elif t == "0xb8":
-				result+="failed/"+t
-				print("Port 2 failed this run, unexpected failure")
-			elif t == "0x78":
 				result+="passed/"+t
-				print("Port 1 failed this run, which means everything is ok")
+				print("Port 2 failed this run, expected failure")
+			elif t == "0x78":
+				result+="failed/"+t
+				print("Port 1 failed this run, unexpected failure")
 			else:
 				result+="unknown/"+t
 				print("Device in unknown state")
@@ -994,6 +1073,8 @@ def loop10():
 		writer.writerow([result])
 		log.append(result)
 
+		logCSV.flush()
+
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
@@ -1001,98 +1082,93 @@ def loop10():
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
 
-	logCSV.flush()
+		v.write("\nLoop 10 test "+str(i+1)+" starts here.\n")
+
 	logCSV.close()
 	return log
 
 def main():
-	logCSV = open("log.csv","w",newline="")
-	writer = csv.writer(logCSV)
-	log = list()
-	if len(PSUPorts) == 0:
-		print("Please enter the ports the device is connected to before running the script.")
-		print("Exiting now...")
-		return
+	try:
+		log = list()
+		if len(PSUPorts) == 0:
+			print("Please enter the ports the device is connected to before running the script.")
+			print("Exiting now...")
+			return
 
-	try:
-		print("\nInitializing Serial connection with the device....")
-		global connS
-		connS = SConnection(sys.argv[1],int(sys.argv[2]))
-		print("Done")
-	except SerialException:
-		print("A connection with the device was not established. Please advise.")
-		return
-	except ValueError:
-		print("The baudrate can only be a pure number.")
-		return
-	
-	try:
-		print("\nInitializing Telnet connection with the PSU....")
-		global connT
-		connT = TConnection()
-		print("Done")
-	except OSError:
-		print("Connetion with the PSU over Telnet was not established. Please advise.")
-		exit()
-	
-	try:
-		global reps
-		reps = int(sys.argv[3])
-	except ValueError:
-		print("Number of repetions can only be a number.")
-		exit()
-
-	for p in PSUPorts:
-		if p < 1 or p > 4:
-			print("The PSU port the device is connected to was out of bounds.")
-			print("Please enter the proper port numbers; between 1 and 8")
+		try:
+			print("\nInitializing Serial connection with the device....")
+			global connS
+			connS = SConnection(sys.argv[1],int(sys.argv[2]))
+			print("Done")
+		except SerialException:
+			print("A connection with the device was not established. Please advise.")
+			return
+		except ValueError:
+			print("The baudrate can only be a pure number.")
+			return
+		
+		try:
+			print("\nInitializing Telnet connection with the PSU....")
+			global connT
+			connT = TConnection()
+			print("Done")
+		except OSError:
+			print("Connetion with the PSU over Telnet was not established. Please advise.")
+			exit()
+		
+		try:
+			global reps
+			reps = int(sys.argv[3])
+		except ValueError:
+			print("Number of repetions can only be a number.")
 			exit()
 
-	
+		for p in PSUPorts:
+			if p < 1 or p > 4:
+				print("The PSU port the device is connected to was out of bounds.")
+				print("Please enter the proper port numbers; between 1 and 8")
+				exit()
 
-	print("The series of tests will begin now. Good luck!!\n")
+		
 
-	print("Loop 1 initiating now")
-	log.append(loop1())
-	print("\nLoop 1 complete. Moving on to Loop 2...\n")
-	log.append(loop2())
-	print("\nLoop 2 complete. Moving on to Loop 3...\n")
-	log.append(loop3())
-	print("\nLoop 3 complete. Moving on to Loop 4...\n")
-	log.append(loop4())
-	print("\nLoop 4 complete. Moving on to Loop 5...\n")
-	log.append(loop5())
-	print("\nLoop 5 complete. Moving on to Loop 6...\n")
-	log.append(loop6())
-	print("\nLoop 6 complete. Moving on to Loop 7...\n")
-	log.append(loop7())
-	print("\nLoop 7 complete. Moving on to Loop 8...\n")
-	log.append(loop8())
-	print("\nLoop 8 complete. Moving on to Loop 9...\n")
-	log.append(loop9())
-	print("\nLoop 9 complete. Moving on to Loop 10...\n")
-	log.append(loop10())
-	print("\nLoop 10 complete.")
+		print("The series of tests will begin now. Good luck!!\n")
 
-	for i in range(0,len(log),1):
-		while len(log[i]) != 101:
-			log[i].append("")
+		print("Loop 1 initiating now")
+		log.append(loop1())
+		print("\nLoop 1 complete. Moving on to Loop 2...\n")
+		log.append(loop2())
+		print("\nLoop 2 complete. Moving on to Loop 3...\n")
+		log.append(loop3())
+		print("\nLoop 3 complete. Moving on to Loop 4...\n")
+		log.append(loop4())
+		print("\nLoop 4 complete. Moving on to Loop 5...\n")
+		log.append(loop5())
+		print("\nLoop 5 complete. Moving on to Loop 6...\n")
+		log.append(loop6())
+		print("\nLoop 6 complete. Moving on to Loop 7...\n")
+		log.append(loop7())
+		print("\nLoop 7 complete. Moving on to Loop 8...\n")
+		log.append(loop8())
+		print("\nLoop 8 complete. Moving on to Loop 9...\n")
+		log.append(loop9())
+		print("\nLoop 9 complete. Moving on to Loop 10...\n")
+		log.append(loop10())
+		print("\nLoop 10 complete.")
 
-	tmp1 = list()
-	tmp2 = list()
-	for i in range(0, 101, 1):
-		for j in range (0,len(log),1):
-			tmp1.append(log[j][i])
-		tmp2.append(tmp1)
-		tmp1 = []
+		v.write("\n\nEnd of verbose log. All tests completed without any exceptions.\n\n")
+		v.flush()
+		v.close()
 
-	writer.writerows(tmp2)
-	logCSV.flush()
-	logCSV.close()
-
-	print("\nAll tests completed. The log is available as loop1.csv in the same directory as the script.")
+		print("\nAll tests completed. The log is available as log.csv in the same directory as the script.")
+		
+	except:
+		print("")
+		traceback.print_exc()
+		verbose()
+		v.write("\n\nEnd of verbose log. Testing procedure not complete.\n\n")
+		v.flush()
+		v.close()
 
 
 if __name__ == '__main__':

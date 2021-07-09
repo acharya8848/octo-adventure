@@ -15,7 +15,7 @@ class TConnection:
 	first = False
 	state = False
 	#Constructor
-	def __init__(self,ip="172.24.0.75",port=23):
+	def __init__(self,ip="172.30.0.42",port=23):
 		self.ip = ip
 		self.port = port
 		try:

@@ -8,7 +8,7 @@
 '''
 
 #STL imports
-import sys, re, csv, os, io
+import sys, re, csv, os, io, traceback
 from time import sleep, time
 from random import SystemRandom
 
@@ -43,27 +43,25 @@ rslt = [
 error = "Error: Read failed\r"
 
 #The i2c bus reading when one of the ports has failed
-fail = "0xb8\r"
+fail1 = "0xb8\r"
+fail2 = "0x78\r"
 
 #PSU Ports the device is connected to
-PSUPorts = [1, 2]
+PSUPorts = [1, 4]
 
 #At this point, the script has been setup for usage through command line.
 #Good luck.
 
-
+#Building a hash map using commands and the respective results
 check = dict()
 for i in range(0, len(commands), 1):
 	check[commands[i]] = rslt[i]
 
-def help():
-	print("\n\nThe script can be used as follows:")
-	print("\n\t",sys.argv[0], " <DEVICE> <BAUDRATE> <REPETITIONS>")
-	print("\n\tDEVICE:- COMX for windows, /dev/usbX for linux; replace the 'X' with relevant number")
-	print("\tBAUDRATE:- A number representing the rate of communication.")
-	print("\tREPETITIONS:- Number of times to run the tests for\n\n")
-	print("There are parameters that need to be edited before the script is run. Edit the file before use.")
-	return
+#Verbose log of the device output
+v = open("Verbose Log 4.txt", "w")
+
+#Random number generator
+r = SystemRandom()
 
 #Regular expressions
 off = re.compile(r'^.*reboot:\sPower\sdown.*$')
@@ -71,11 +69,22 @@ userNameP = re.compile(r'^.*login:.*$')
 bootPrompt = re.compile(r"^.*Press.ESC.for.boot.menu.*$")
 passd = re.compile(r'.*0xf8.*')
 
+def verbose(end:bool=False):
+	v.write(connS.ser.read().decode('ascii', errors='ignore'))
+	if end:
+		v.flush()
+		v.close()
+
+def fix():
+	for i in range(0,6,1):
+		cmd = "i2cset -y "+str(i)+" 0x5b 0x06 0x01"
+		connS.send(cmd)
+
 def setup():
 	#this will make sure that the booting device
 	#reaches the login prompt
-	while bootPrompt.match(connS.readline()) is None:
-		pass
+	while bootPrompt.match(read:=connS.readline()) is None:
+		v.write(read)
 	connS.ser.write(b"\033")
 	sleep(0.5)
 	connS.ser.write(b"2")
@@ -84,9 +93,10 @@ def setup():
 def toLogin():
 	start = time()
 	failed = False
-	while userNameP.match(connS.readline()) is None:
+	while userNameP.match(read:=connS.readline()) is None:
+		v.write(read)
 		if (time()-start) > limit:
-			print("The device has failed to boot within", limit, "seconds. Boot number:", i+1)
+			print("The device has failed to boot within", limit, "seconds.")
 			print("Please mannually check if there is something wrong with the device.")
 			print("\n\n\n------Test incomplete------\n\n\n")
 			for i in range(0, len(PSUPorts), 1):
@@ -110,6 +120,7 @@ def login():
 		connS.send(pwrd)
 		sleep(3.5)
 		rslt = connS.readAll()
+		v.write(rslt)
 		if not re.compile(r'^.*Login\sincorrect.*$').match(rslt) is None:
 			print("Incorrect username or password supplied.")
 			print("Please edit the script with correct values before running.")
@@ -126,23 +137,48 @@ def login():
 
 def reboot():
 	if needSudo:
-		connS.send("sudo reboot")
+		v.write(connS.send("sudo reboot"))
 		time.sleep(1)
-		connS.send(pwrd)
+		v.write(connS.send(pwrd))
 	else:
-		connS.send("reboot")
+		v.write(connS.send("reboot"))
+
+def test():
+	failed = "0x38"
+	for cmd in commands:
+		rslt = connS.send(cmd)
+		v.write(rslt)
+		rslt = rslt.split("\n")
+
+		if error in rslt:
+			continue
+
+		if check[cmd] in rslt:
+			print("System report: 0xf8")
+			failed = "0xf8"
+		elif fail1 in rslt:
+			print("System report: 0xb8")
+			failed = "0xb8"
+		elif fail2 in rslt:
+			print("System report: 0x78")
+			failed = "0x78"
+
+	return failed
 
 def poweroff():
 	if needSudo:
-		connS.send("sudo poweroff")
+		v.write(connS.send("sudo poweroff"))
 		time.sleep(1)
-		connS.send(pwrd)
+		v.write(connS.send(pwrd))
 	else:
-		connS.send("poweroff")
-
-	while off.match(connS.readline()) is None:
-		pass
-
+		v.write(connS.send("poweroff"))
+	start = time()
+	while off.match(read:=connS.readline()) is None:
+		v.write(read)
+		if time() - start > 30:
+			print("Device failed to report poweroff within 30 seconds. Cutting power now.")
+			break
+	v.write(read)
 	print("Device powered off successfully")
 	return True
 
@@ -156,22 +192,24 @@ def help():
 	return
 
 def loop4():
+	v.write("\n\nLoop 4 starts here\n\n")
 	logCSV = open("loop4.csv", "w", newline="")
 	writer = csv.writer(logCSV)
 	writer.writerow(["Loop 4"])
 	log = ["Loop 4"]
 
 	for i in range(0, reps, 1):
+		v.write("\nLoop 4 test "+str(i+1)+" starts here.\n")
 		print("loop4: Test", i+1, "starting now...")
-		
-		r = SystemRandom()
 		
 		result = ""
 
 		for k in range(0,2,1):
 			if result != "":
 				result+="|"
-
+			
+			result += (str(time())+"/")
+			
 			print("Turning the PSU ports on")
 
 			connT.powerOnPort(PSUPorts[0])
@@ -184,46 +222,35 @@ def loop4():
 			failed = login()
 
 			if failed:
-				failed = False
 				result+=("Boot failure")
 
 				connT.powerOffPort(PSUPorts[1])
 				connT.powerOffPort(PSUPorts[0])
+				
+				logCSV.flush()
 
-				sleep(120)
+				sleep(125)
 
 				continue
 			
 			end = time()-5
-		
-			failed = True
 			
 			print("Device took", (end-start), "seconds to boot up.")
+
 			print("Running the test commands now")
-			for cmd in commands:
-				if (cmd == "lsblk" or cmd == "dmidecode -t 0,1,2,3") and needSudo:
-					connS.justSend("sudo "+cmd)
-					sleep(1)
-					rslt = connS.send(pwrd)
-				else:
-					rslt = connS.send(cmd)
-
-				rslt = rslt.split("\n")
-
-				if error in rslt:
-					continue
-
-				if fail in rslt:
-					result+="failed"
-					failed = True
-				elif check[cmd] in rslt:
-					result+="passed"
-					failed = False
-
-			if failed:
-				print("One of the ports failed this run.")
-			else:
+			t = test()
+			if t == "0xf8":
+				result+="passed/"+t
 				print("Nothing seemingly failed this run.")
+			elif t == "0xb8":
+				result+="failed/"+t
+				print("Port 2 failed this run")
+			elif t == "0x78":
+				result+="failed/"+t
+				print("Port 1 failed this run")
+			else:
+				result+="unknown/"+t
+				print("Device in unknown state")
 
 			print("Powering off the device now")
 			poweroff()
@@ -233,89 +260,90 @@ def loop4():
 
 			if k%2 == 0:
 				sleep(delay:=r.randint(1000,3000)/1000)
-			print("Delayed for", delay, "seconds")
-
+				print("Delayed for", delay, "seconds")
+		print(result)
 		writer.writerow([result])
 		log.append(result)
+
+		logCSV.flush()
 
 		if i+1 < reps:
 			print("Test", i+1, "completed.")
 			print("Powering the PSU Port off and waiting for 120 seconds")
-			sleep(5)
+			sleep(125)
 			print("Moving on to test",i+2,"\n")
 		else:
 			print("Test", i+1, "completed. All done. Moving on")
-			sleep(5)
+			sleep(125)
+		v.write("\nLoop 4 test "+str(i+1)+" ends here.\n")
 
-	logCSV.flush()
 	logCSV.close()
 	return log
 
 def main():
-	logCSV = open("log.csv","w",newline="")
-	writer = csv.writer(logCSV)
-	log = list()
-	if len(PSUPorts) == 0:
-		print("Please enter the ports the device is connected to before running the script.")
-		print("Exiting now...")
-		return
+	try:
+		log = list()
+		if len(PSUPorts) == 0:
+			print("Please enter the ports the device is connected to before running the script.")
+			print("Exiting now...")
+			return
 
-	try:
-		print("\nInitializing Serial connection with the device....")
-		global connS
-		connS = SConnection(sys.argv[1],int(sys.argv[2]))
-		print("Done")
-	except SerialException:
-		print("A connection with the device was not established. Please advise.")
-		return
-	except ValueError:
-		print("The baudrate can only be a pure number.")
-		return
-	
-	try:
-		print("\nInitializing Telnet connection with the PSU....")
-		global connT
-		connT = TConnection()
-		print("Done")
-	except OSError:
-		print("Connetion with the PSU over Telnet was not established. Please advise.")
-		exit()
-	
-	try:
-		global reps
-		reps = int(sys.argv[3])
-	except ValueError:
-		print("Number of repetions can only be a number.")
-		exit()
-
-	for p in PSUPorts:
-		if p < 1 or p > 4:
-			print("The PSU port the device is connected to was out of bounds.")
-			print("Please enter the proper port numbers; between 1 and 8")
+		try:
+			print("\nInitializing Serial connection with the device....")
+			global connS
+			connS = SConnection(sys.argv[1],int(sys.argv[2]))
+			print("Done")
+		except SerialException:
+			print("A connection with the device was not established. Please advise.")
+			return
+		except ValueError:
+			print("The baudrate can only be a pure number.")
+			return
+		
+		try:
+			print("\nInitializing Telnet connection with the PSU....")
+			global connT
+			connT = TConnection()
+			print("Done")
+		except OSError:
+			print("Connetion with the PSU over Telnet was not established. Please advise.")
+			exit()
+		
+		try:
+			global reps
+			reps = int(sys.argv[3])
+		except ValueError:
+			print("Number of repetions can only be a number.")
 			exit()
 
-	
+		for p in PSUPorts:
+			if p < 1 or p > 4:
+				print("The PSU port the device is connected to was out of bounds.")
+				print("Please enter the proper port numbers; between 1 and 8")
+				exit()
 
-	print("\n")
-	print("The series of tests will begin now. Good luck!!\n")
+		
 
-	print("Loop 4 initiating now")
-	log.append(loop4())
-	print("Loop 4 complete.")
+		print("The series of tests will begin now. Good luck!!\n")
 
-	tmp1 = list()
-	tmp2 = list()
-	for i in range(0, len(log[0]), 1):
-		for j in range (0,len(log),1):
-			tmp1.append(log[j][i])
-		tmp2.append(tmp1)
-		tmp1 = []
+		print("Loop 4 initiating now")
+		log.append(loop4())
+		print("\nLoop 4 complete")
 
-	writer.writerows(tmp2)
-	logCSV.flush()
-	logCSV.close()
+		v.write("\n\nEnd of verbose log. All tests completed without any exceptions.\n\n")
+		v.flush()
+		v.close()
 
-	print("\nAll tests completed. The log is available as log.csv in the same directory as the script.")
+		print("\nAll tests completed. The log is available as log.csv in the same directory as the script.")
+		
+	except:
+		print("")
+		traceback.print_exc()
+		verbose()
+		v.write("\n\nEnd of verbose log. Testing procedure not complete.\n\n")
+		v.flush()
+		v.close()
+
 
 if __name__ == '__main__':
 	if len(sys.argv) == 4:
