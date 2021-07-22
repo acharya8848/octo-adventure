@@ -21,7 +21,7 @@ from connman2 import TConnection, SConnection
 #OS Login Credentials
 uname = "root"			#the user to login as
 pwrd = "admin"			#the password for the user account
-#I hate pfsense
+#If the machine is running pfSense, set this to True, else set it to False; As a sidenote, I hate pfSense
 pfsense = False
 #If the machine needs sudo, put set as True, else set it as false
 needSudo = False
