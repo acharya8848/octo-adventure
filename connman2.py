@@ -9,22 +9,25 @@ from serial import Serial, SerialException
 #Regular expression
 notFound = re.compile(r'^.*Unknown\sCommand.*$')
 
+#Script version
+version = '2.1.1'
+
 class TConnection:
 	ON = set()
 	OFF = set()
 	first = False
 	state = False
 	#Constructor
-	def __init__(self,ip="172.30.0.42",port=23):
+	def __init__(self,ip="172.24.0.75",port=23):
 		self.ip = ip
 		self.port = port
 		try:
 			self.tn = Telnet(ip,port)
+			self.first = True
+			self.setup()
 		except OSError:
-			print("Error while opening the telnet connection. Exiting now")
+			#print("Error while opening the telnet connection. Exiting now")
 			exit()
-		self.first = True
-		self.setup()
 		return
 
 	def close(self):
@@ -39,10 +42,16 @@ class TConnection:
 	#Sends commands over and reads the status of all the ports
 	#Be careful with this one as you can get stuck waiting forever
 	def send(self,cmd):
-		self.last = time()
+		#print(cmd)
 		while True:
-			self.tn.read_very_eager()
-			self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			try:
+				self.tn.read_very_eager()
+				self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			except ConnectionResetError:
+				#print("ConnectionResetError encountered, resetting the connection now.")
+				self.tn.close()
+				self.tn.open(self.ip, self.port)
+				continue
 			self.last = time()
 			rsp = self.tn.read_until(b"9258Telnet->").decode(encoding='ascii', errors='ignore')
 			if notFound.match(rsp) is None:
@@ -53,10 +62,17 @@ class TConnection:
 	#Sends commands over without reading the status of all the ports
 	#Exactly same functionality as send() without the risk of getting stuck
 	def justSend(self,cmd):
-		self.last = time()
+		#print(cmd)
 		while True:
-			self.tn.read_very_eager()
-			self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			try:
+				self.tn.read_very_eager()
+				self.tn.write(bytes(str(cmd)+'\n', encoding='ascii'))
+			except ConnectionResetError:
+				#print("ConnectionResetError encountered, resetting the connection now.")
+				self.tn.close()
+				self.tn.close()
+				self.tn.open(self.ip, self.port)
+				continue
 			self.last = time()
 			rsp = self.tn.read_until(b"9258Telnet->").decode(encoding='ascii', errors='ignore')
 			if notFound.match(rsp) is None:
@@ -70,8 +86,10 @@ class TConnection:
 		return self.send("getpower")
 
 	def status(self,rsp):
+		# #print(rsp)
 		if (matches:=re.search(re.compile(r'\d\s\d\s\d\s\d'), rsp)) is not None:
 			matches = matches.group().split(' ')
+			# #print(matches)
 			if matches[0] == "1":
 				self.ON.add(1)
 				self.OFF.discard(1)
@@ -97,6 +115,8 @@ class TConnection:
 				self.OFF.add(4)
 				self.ON.discard(4)
 
+			#print(str(self.ON))
+			#print(str(self.OFF))
 			return True
 
 		return False
@@ -118,12 +138,11 @@ class TConnection:
 						cmd+='1'
 					else:
 						cmd+='0'
-		#print(cmd)
 		return self.send(cmd)
 
 	def powerOnPort(self, port:int = 0):
-		cmd = ""
 		self.refresh()
+		cmd = ""
 		if port > 4 or port < 0:
 			return False
 		elif port == 0:
@@ -138,10 +157,9 @@ class TConnection:
 						cmd+='1'
 					else:
 						cmd+='0'
-		#print(cmd)
 		return self.send(cmd)
 
-	def togglePort(self,port:int):
+	def togglePort(self,port:int=0):
 		self.refresh()
 		if port in self.ON:
 			return self.powerOffPort(port)
@@ -154,16 +172,21 @@ class TConnection:
 				self.powerOffPort()
 
 	def refresh(self):
-		try:
-			self.send("getpower")
-			#print("No need to refresh")
-		except EOFError:
-			self.tn.open(self.ip, self.port)
-			#print("Refreshed")
-		except:
-			return False
+		if self.first:
+			if time()-self.last < 100:
+				return True
 
-		return True
+			else:
+				self.close()
+				try:
+					self.tn.open(self.ip, self.port)
+					return self.setup()
+				except OSError:
+					return False
+
+	def update(self):
+		self.last = time()
+		return self.send("getpower")
 
 	def cyclePower(self, port:int, t:float = 10):
 		self.refresh()
