@@ -10,7 +10,7 @@ from serial import Serial, SerialException
 notFound = re.compile(r'^.*Unknown\sCommand.*$')
 
 #Script version
-version = '2.1.1'
+version = '2.2.0'
 
 class TConnection:
 	#Constructor
