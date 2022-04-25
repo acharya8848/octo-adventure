@@ -13,12 +13,12 @@ notFound = re.compile(r'^.*Unknown\sCommand.*$')
 version = '2.1.1'
 
 class TConnection:
-	ON = set()
-	OFF = set()
-	first = False
-	state = False
 	#Constructor
 	def __init__(self,ip="172.24.0.75",port=23):
+		self.ON = set()
+		self.OFF = set()
+		self.first = False
+		self.state = False
 		self.ip = ip
 		self.port = port
 		try:
@@ -266,9 +266,9 @@ class TConnection:
 cmdPrompt = re.compile(r'^.*@.*$')
 
 class SConnection:
-	device = str()
-	rate = int()
 	def __init__(self,device:str,rate:int=115200,timeout:float=0.5):
+		self.device = str()
+		self.rate = int()
 		self.device = device
 		self.rate = rate
 		self.timeout = timeout
